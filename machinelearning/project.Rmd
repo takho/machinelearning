@@ -1,0 +1,262 @@
+Title: Determine manner in which exercise is performed based on Machine Learning Technique
+========================================================
+
+## Executive Summary
+Computer devices (such as Nike Fueland, Fitbit and even smart phone) the data collection about personal activity relatively inexpensively.   Studies (from http://groupware.les.inf.puc-rio.br/har) were performed asking 6 participants to lift the dumbbell correctly and incorrectly in 5 different ways (hereafter, known as class).  Data were obtained from accelerometers on the belt, forearm, arm, and dumbbell of the 6 participants.   Two data set, a large training set and a testing set containing 20 observations were provided.
+
+This paper describe the process used to select the random forest as the machine learning method through different training methods.   The random forest method thus obtained accurately predict the exercise class for all the 20 cases.
+
+
+## Data Processing
+### Raw data analysis and processing
+
+The training set contains 160 columns and 19622 rows.   The classe column is a factor variable containing 5 different type as follows.
+- A: correctly (per specification)
+- B:  throwing elbow to front
+- C:  lifting dumbbell half way
+-	D:  Lowering dumbbell half way
+-	E:  Throwing hip to front.
+
+Steps are required to refine the dataset variable to a more manageable size.   Four different types of variables (columns) are of no value in selecting the machine learning methods and will be eliminated.  They are
+
+1. Descriptive, non-relevant variables - e.g. user name, timestamps, number of windows.
+2. Variables with missing no data - e.g. kurtosis, skewness data
+3. Variable with NA data - e.g.  standard deviation,  variance, average, maximum and minimum data
+4. Variable that are highly correlated - (using more of these variables will increase the processing time without improving accuracy).    A correlation coefficient of 0.75 or higher is used to screen off highly correlated variable.   Examples of correlated data are roll_belt vs, yaw_belt, total_accl_belt, accel_belt_y, accel_belt_z, and accel_arm_y.
+
+
+After this screening, a total number of 36 columns (including classe) was obtained.  This were written to a file called "corColumn" to enable easy data subsetting later.   See  screening and train data Subsetting below.
+
+
+
+
+### screening and train data Subsetting
+   
+```{r traindata, echo=TRUE, result="asis"}
+setwd("E://courses//jh-dataexplore//ws_machine")
+d <- read.csv("pml-training.csv")
+  
+  
+#get rid of those column that has lots of NA and no data.
+# 90% is arbitrarily chosen to indicate a lot
+s <- sapply(d , function(x) (sum(is.na(x))/nrow(d) > 0.9) || (nrow(d[x=="",])/nrow(d) > 0.9))
+s1 <- for (i in 1:length(s)){ if(s[i]==FALSE)  print(paste(i,names(s)[i], sep= " " )) }
+
+# column_N is a file obtained by manually eliminating irrelevant data
+# such as user_name, timestamp etc
+colN <- read.table("column_N.txt")
+
+d.num <- subset(d, select=c(colN$V1))
+# give the subset data meaningful column names
+names(d.num) <- colN$V2
+
+
+
+# Eliminating correlated data
+# correlation between column can be found as below
+# this find the correlation between other columns with the columns roll_belt.  Write a function to go
+# through every column of the set 
+sapply(d.num, cor, y=d.num$roll_belt)
+
+# Any column with correlation greater than 0.75 is eliminated. 
+# This eliminated column is removed from the column_N.txt file and written to
+# another file called coColumn.txt -- forming the final processed data set
+colD <- read.table("corColumn.txt")
+
+```
+
+### Data Subsetting
+The corColumn file content include (second column is the column name in the training data set, column one indicate column position, i.e.  Roll_belt is the 8th column in the original training data set)
+<PRE>
+8   roll_belt
+9	  pitch_belt
+37	gyros_belt_x
+38	gyros_belt_y
+39	gyros_belt_z
+44	magnet_belt_y
+46	roll_arm
+47	pitch_arm
+48	yaw_arm
+49	total_accel_arm
+60	gyros_arm_x
+62	gyros_arm_z
+64	accel_arm_y
+65  accel_arm_z
+66	magnet_arm_x
+67	magnet_arm_y
+84	roll_dumbbell
+85	pitch_dumbbell
+86	yaw_dumbbell
+113	gyros_dumbbell_x
+114	gyros_dumbbell_y
+116	accel_dumbbell_x
+117	accel_dumbbell_y
+118	accel_dumbbell_z
+121	magnet_dumbbell_z
+122	roll_forearm
+123	pitch_forearm
+124	yaw_forearm
+140	total_accel_forearm
+151	gyros_forearm_x
+154	accel_forearm_x
+155	accel_forearm_y
+156	accel_forearm_z
+157	magnet_forearm_x
+159	magnet_forearm_z
+160	classe
+</PRE>
+
+    The orginal training dataset is subset using the above list of columns. 
+
+
+## Training Methods used
+```{r training, echo=TRUE, result="asis"}
+# note:  colDerv$V1 is the column position
+#        colDerv$V2 is the columnn Name 
+
+d.sub <- subset(d, select=c(colD$V1))
+
+# give the subset data meaningful column names
+names(d.sub) <- colD$V2
+
+set.seed(1234)
+library(caret)
+inTrain <- createDataPartition(y=d.sub$classe,p=0.5,list=FALSE)
+training <- d.sub[inTrain,]
+testing <- d.sub[-inTrain,]
+```
+
+
+
+```{r testmodel, echo=TRUE, result="hide"}
+Sys.time()
+mod.gbm <- train(classe ~ ., method="gbm",  data=training, verbose=FALSE)
+Sys.time()
+mod.rf <- train(classe ~ ., method="rf", data=training, trControl = trainControl(method="cv"), number=3)
+Sys.time()
+
+
+pred.gbm <- predict(mod.gbm, testing)
+pred.rf <- predict(mod.rf, testing)
+```
+
+Caret package is used to subset the training into training and validation dataset using 50%-50% split.
+
+Two training methods were employed, gbm (generalized boosted model) and rf (random forest).  Figure 1 is an example showing the predicted outcome for each of the 5 classe using the gbm method.   
+
+
+Fig1: Using validation dataset to estimate gbm model predicated accuracy of the classes 
+```{r echo=TRUE, fig.width=8, fig.height=3}
+qplot(pred.gbm, colour=classe, fill=classe, data=testing)
+```
+
+The predicted value is cross-validated with the real result in the validation set and tabulated as follows
+<PRE>
+pred.gbm    A    B    C    D    E
+       A 2731   77    4    3    2
+       B   28 1737   79    7   29
+       C   11   67 1593   90   40
+       D   15   14   33 1500   32
+       E    5    3    2    8 1700
+
+pred.rf    A    B    C    D    E
+      A 2788   19    0    0    0
+      B    1 1868   26    0    0
+      C    1   11 1676   47    4
+      D    0    0    9 1560    2
+      E    0    0    0    1 1797
+</PRE>
+
+
+## Cross-validation
+Cursory viewing shows that random forest provides a more accurate prediction.    Accuracy and Kappa statistics also show random forest outperforms generalized boosted method.
+<Table border="1" bgcolor="#FF0000">
+<TR><TD>Generalized</TD><TD>Boosted Method(1)</TD><TD>Random Forest(2)</TD></TR>
+<TR><TD>Training time (3)</TD><TD>13 minutes</TD><TD>9 minutes</TD></TR>
+<TR><TD>Accuracy</TD><TD>0.936</TD><TD>0.983</TD></TR>
+<TR><TD>Kappa</TD><TD>0.919</TD><TD>0.979</TD></TR>
+<TR><TD>Accuracy SD</TD><TD>0.0044</TD><TD>0.0034</TD></TR>
+<TR><TD>Kappa SD</TD><TD>0.0055</TD><TD>0.0043</TD></TR>
+</Table>
+
+Kappa is a measure of agreement between predicted presences and absences with actual presences and absences corrected for agreement that might be due to chance alone.
+(1)	Quoting statistics of gbm with interaction.depth of 3, n.tree of 150
+(2)	Quoting statistics of rf using mtry = 18
+(3) time obtained using Sys.time() function on my computer.
+
+
+The performance can be visualized easily in the following diagram.  Each blue dot represent the prediction accuracy of each classe, in order of A, B, C, D, E.   Using the first point as an example, gbm predict with 91% accuracy, whereas random forest predict 98.5%.  The red line is a 45 degree slope.  Thus any point to the left of it has a high degree of accuracy, i.e. random forest outperform gbm on all fronts.
+
+
+
+```{r validateM, echo=TRUE, result="asis"}
+table.gbm <- table(pred.gbm, testing$classe)    # predict value is row,  testcase value is column
+table.rf <- table(pred.rf, testing$classe)
+
+# cross-validation in terms of percentage
+#prop.table(table.rf,2)                          # get the column frequency of occurrence
+
+
+diag.gbm <- diag(prop.table(table.gbm,2))
+diag.rf <- diag(prop.table(table.rf,2))
+
+
+# draw a graphs of showing  accuracy of diag1 and diag2
+diag.comb <- cbind(diag.gbm, diag.rf)
+```
+
+
+```{r echo=TRUE, fig.width=8, fig.height=3}
+par(mfrow=c(1,1))
+with(testing, plot(diag.comb*100, pch=19, cex=1, col="blue", main="compare training methods", xlab="%accuracy using gbm", ylab="% accuracy - random forest"))
+abline(0,1,lwd=2, col='red')
+```
+
+
+
+```{r validatedata, echo=TRUE, result="asis"}
+
+inTrain <- createDataPartition(y=d.sub$classe,p=0.7,list=FALSE)
+training <- d.sub[inTrain,]
+testing <- d.sub[-inTrain,]
+Sys.time()
+mod.rf7 <- train(classe ~ ., method="rf", data=training, trControl = trainControl(method="cv"), number=3)
+Sys.time()
+
+
+pred.rf7 <- predict(mod.rf7, testing)
+table.rf7 <- table(pred.rf7, testing$classe)
+diag.rf7 <- diag(prop.table(table.rf7, 2))
+
+diag.rfcomb <- cbind(diag.rf, diag.rf7)
+```
+
+Random forest is chosen this time using a larger training dataset with 70-30 split for training and validation.  Training time increase to 14 minutes. The accuracy comparison is present below graphically.  This show the 70-30 split provide marginally better accuracy than the 50-50 split.
+```{r echo=TRUE, fig.width=8, fig.height=3}
+par(mfrow=c(1,1))
+with(testing, plot(diag.rfcomb, pch=19, cex=1, col="blue",main="compare random forest", ylab="%accur- 70% train data", xlab="%accur-50% train data"))
+abline(0,1,lwd=2, col='red')
+```
+
+## Conclusion
+### Prediction on the provided dataset
+Using the same method describe under raw data processing, remove the irrelevant column in the test data set.  Add a column called number to identify the observation number.   Then apply the prediction model (obtained from random forest with 70-30 split in training data) to each of the observation. The code below shows how this was done.    That said, other experiments also conducted, that show the gbm, or random forest at even 50:50 split of training also provides every accurate prediction.
+
+```{r testdata, echo=TRUE, result="asis"}
+# note:  colDerv$V1 is the column position
+#        colDerv$V2 is the columnn Name 
+t <- read.csv("pml-testing.csv")
+t.sub <- subset(t, select=c(colD$V1))
+
+# give the subset data meaningful column names
+names(t.sub) <- colD$V2
+
+t.sub$number <- c(1:20)
+# subsetting
+
+for (i in 1:20) { print(paste(i,predict(mod.rf7, t.sub[t.sub$number==i,]), sep="  "     )) }
+
+```
+
+
+
